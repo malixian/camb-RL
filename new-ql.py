@@ -1,6 +1,6 @@
 # -*- coding:utf-8 -*-
 import numpy as np
-import collections
+import collections, copy
 
 modelRange = collections.OrderedDict()
 
@@ -33,7 +33,7 @@ relaCoreJCT = collections.OrderedDict()
 for i in coreJCT:
     relaCoreJCT[i] = []
     for j in range(len(coreJCT[i])):
-        relaCoreJCT[i].append(coreJCT[i][0] / coreJCT[i][j])
+        relaCoreJCT[i].append(coreJCT[i][len(coreJCT[i])-1] / coreJCT[i][j] )
 
 # 单机有5张卡，供160个核，这一批任务最多一共需要70个核，也就是说最少可以跑2轮；最少需要50个核，最多可以跑3轮
 
@@ -55,6 +55,7 @@ core_number = 32
 # state_set = {card_0_0, card_0_1,...card_index_usedcore, ....}
 state_set = [i for i in range(card_number * (core_number+1))]
 
+
 def cardLeftResource(sid):
     return 32 - (sid - sid / 33 * 33)
 
@@ -71,13 +72,23 @@ def getUsedCoreAndJCTByActionId(actionId):
     print("don't find model \n ")
     return -1
 
+def getModelByActionId(actionId):
+    curIdx = 0
+    for i in coreJCT:
+        for m in range(len(coreJCT[i])):
+            for j in range(3):
+                if curIdx == actionId:
+                    return i
+                curIdx += 1
+    print("don't find model \n ")
+    return ""
 
 # 最后一个卡资源为0的时候
 def hasResource(sid):
-    return sid <= 159
+    return sid <= card_number * (core_number+1) - 1
 
 def getReward(jct):
-    return 1 + jct
+    return 2 + jct
 
 
 def Qlearning():
@@ -87,25 +98,46 @@ def Qlearning():
 
     # Q(state, action) = Reward(state, action) + Gamma*Max(Q(state+1, all actions))
     Q = np.zeros([len(state_set), len(action_set)])
-    print len(action_set), len(state_set)
-    for episode in range(201):
+    max_reward_trace = []
+    max_reward = 0
+    for episode in range(5000):
+        acc_reward = 0
         # 从第一张卡开始选择
         state = 0
         # 使用过的action需要删除
-        possible_actions = action_set
+        possible_actions = copy.deepcopy(action_set)
+        possible_q = copy.deepcopy(Q)
         # 当没有可用core时为终止条件
-        while (hasResource(state)):
-
+        trace = []
+        model_count = {}
+        for i in modelRange:
+            model_count[i] = 3
+        while hasResource(state)  and len(possible_actions) > 0:
             # Step next state, here we use epsilon-greedy algorithm.
             if np.random.random() < epsilon:
                 # choose random action
                 action = possible_actions[np.random.randint(0, len(possible_actions))]
             else:
                 # greedy
-                action = np.argmax(Q[state])
+                max_q_action = possible_actions[np.random.randint(0, len(possible_actions))]
+                max_q = 0.0
+                for to_action in range(len(possible_q[state])):
+                    if model_count[getModelByActionId(to_action)] == 0:
+                        continue
+                    if possible_q[state][to_action] >= max_q:
+                        max_q = possible_q[state][max_q_action]
+                        max_q_action = to_action
+                action = max_q_action
+            trace.append(action)
 
-            # 删除使用过的动作
-            possible_actions = action_set[:action] + action_set[action+1:]
+            # 统计作业个数
+            model = getModelByActionId(action)
+            model_count[model] = model_count[model] - 1
+            if model_count[model] == 0:
+                # 删除所有action对应的model
+                for i in possible_actions:
+                    if getModelByActionId(i) == model:
+                        possible_actions.remove(i)
 
             # Update Q value
             usedCore, jct = getUsedCoreAndJCTByActionId(action)
@@ -114,20 +146,37 @@ def Qlearning():
             else:
                 #reward = -1
                 reward = getReward(jct)
+            acc_reward += reward
             Q[state, action] = reward + gamma * Q[state].max()
 
             # Go to the next state
             state += usedCore
+        if max_reward < acc_reward:
+            max_reward_trace = trace
 
         # Display training progress
-        if episode % 10 == 0:
+        if episode >=100 and episode % 100 == 0:
             print("------------------------------------------------")
-            print("Training episode: %d" % episode)
-            print(Q)
-
+            #print("Training episode: %d" % episode)
+            #print(Q)
+            print("iter %d reward is %d \n" % (episode, acc_reward))
+            #print trace
+            #for i in trace:
+            #    print getModelByActionId(i)
+            #    print getUsedCoreAndJCTByActionId(i)
     # save Q matrix
-    qf = open("Q-matrix.csv", "w+")
+    print "max trace is", max_reward_trace
+    all_used_core = 0
+    for i in trace:
+        print getModelByActionId(i)
+        used_core, jct = getUsedCoreAndJCTByActionId(i)
+        all_used_core += used_core
+    print "max reward is ", max_reward
+    print "all used core is ", all_used_core
+    qf = open("Q-matrix-" + str(card_number) + "card.csv", "w+")
     [rows, cols] = Q.shape
+
+
     for i in range(rows):
         for j in range(cols):
             qf.write(str(Q[i][j]))
