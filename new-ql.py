@@ -100,7 +100,7 @@ def Qlearning():
     Q = np.zeros([len(state_set), len(action_set)])
     max_reward_trace = []
     max_reward = 0
-    for episode in range(5000):
+    for episode in range(200):
         acc_reward = 0
         # 从第一张卡开始选择
         state = 0
@@ -114,15 +114,20 @@ def Qlearning():
             model_count[i] = 3
         while hasResource(state)  and len(possible_actions) > 0:
             # Step next state, here we use epsilon-greedy algorithm.
+            select = ""
             if np.random.random() < epsilon:
                 # choose random action
                 action = possible_actions[np.random.randint(0, len(possible_actions))]
+                while model_count[getModelByActionId(action)] <= 0:
+                    action = possible_actions[np.random.randint(0, len(possible_actions))]
+                select = "random"
             else:
                 # greedy
-                max_q_action = possible_actions[np.random.randint(0, len(possible_actions))]
+                select = "greedy"
+                max_q_action = -1
                 max_q = 0.0
                 for to_action in range(len(possible_q[state])):
-                    if model_count[getModelByActionId(to_action)] == 0:
+                    if model_count[getModelByActionId(to_action)] <= 0:
                         continue
                     if possible_q[state][to_action] >= max_q:
                         max_q = possible_q[state][max_q_action]
@@ -130,14 +135,12 @@ def Qlearning():
                 action = max_q_action
             trace.append(action)
 
+            if model_count[getModelByActionId(action)] < 0:
+                print select, action
+
             # 统计作业个数
             model = getModelByActionId(action)
             model_count[model] = model_count[model] - 1
-            if model_count[model] == 0:
-                # 删除所有action对应的model
-                for i in possible_actions:
-                    if getModelByActionId(i) == model:
-                        possible_actions.remove(i)
 
             # Update Q value
             usedCore, jct = getUsedCoreAndJCTByActionId(action)
@@ -148,14 +151,14 @@ def Qlearning():
                 reward = getReward(jct)
             acc_reward += reward
             Q[state, action] = reward + gamma * Q[state].max()
-
             # Go to the next state
             state += usedCore
+        #print  model_count
         if max_reward < acc_reward:
             max_reward_trace = trace
-
+            max_reward = acc_reward
         # Display training progress
-        if episode >=100 and episode % 100 == 0:
+        if episode >=0:
             print("------------------------------------------------")
             #print("Training episode: %d" % episode)
             #print(Q)
