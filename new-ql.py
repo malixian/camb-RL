@@ -33,7 +33,8 @@ relaCoreJCT = collections.OrderedDict()
 for i in coreJCT:
     relaCoreJCT[i] = []
     for j in range(len(coreJCT[i])):
-        relaCoreJCT[i].append(coreJCT[i][len(coreJCT[i])-1] / coreJCT[i][j] )
+        relaCoreJCT[i].append(coreJCT[i][len(coreJCT[i])-1] / coreJCT[i][j])
+
 
 # 单机有5张卡，供160个核，这一批任务最多一共需要70个核，也就是说最少可以跑2轮；最少需要50个核，最多可以跑3轮
 
@@ -67,7 +68,7 @@ def getUsedCoreAndJCTByActionId(actionId):
         for m in range(len(coreJCT[i])):
             for j in range(3):
                 if curIdx == actionId:
-                    return modelRange[i][0] + m, relaCoreJCT[i][m]
+                    return modelRange[i][0] + m, (modelRange[i][0] + len(coreJCT[i])) / (1.0 * (modelRange[i][0] + m)), relaCoreJCT[i][m]
                 curIdx += 1
     print("don't find model \n ")
     return -1
@@ -87,14 +88,14 @@ def getModelByActionId(actionId):
 def hasResource(sid):
     return sid <= card_number * (core_number+1) - 1
 
-def getReward(jct):
-    return 2 + jct
+def getReward(jct, rela_used_core):
+    return 1 + jct + rela_used_core
 
 
 def Qlearning():
     # hyperparameter
     gamma = 0.8
-    epsilon = 0.4
+    epsilon = 0.2
 
     # Q(state, action) = Reward(state, action) + Gamma*Max(Q(state+1, all actions))
     Q = np.zeros([len(state_set), len(action_set)])
@@ -135,7 +136,7 @@ def Qlearning():
                 action = max_q_action
             trace.append(action)
 
-            if model_count[getModelByActionId(action)] < 0:
+            if action == -1 or model_count[getModelByActionId(action)] < 0:
                 print select, action
 
             # 统计作业个数
@@ -143,12 +144,13 @@ def Qlearning():
             model_count[model] = model_count[model] - 1
 
             # Update Q value
-            usedCore, jct = getUsedCoreAndJCTByActionId(action)
+            usedCore, rela_used_core, jct = getUsedCoreAndJCTByActionId(action)
             if cardLeftResource(state):
-                reward = getReward(jct)
+                reward = getReward(jct, rela_used_core)
             else:
                 #reward = -1
-                reward = getReward(jct)
+                reward = getReward(jct, rela_used_core)
+            reward += model_count[model]
             acc_reward += reward
             Q[state, action] = reward + gamma * Q[state].max()
             # Go to the next state
@@ -172,7 +174,7 @@ def Qlearning():
     all_used_core = 0
     for i in trace:
         print getModelByActionId(i)
-        used_core, jct = getUsedCoreAndJCTByActionId(i)
+        used_core, _, jct = getUsedCoreAndJCTByActionId(i)
         all_used_core += used_core
     print "max reward is ", max_reward
     print "all used core is ", all_used_core
